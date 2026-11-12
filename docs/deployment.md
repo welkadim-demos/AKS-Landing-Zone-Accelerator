@@ -86,7 +86,7 @@ Set `$deployHub = $false` when reusing an existing hub.
 ## Permissions and provider registration
 
 - The deployment identity needs rights to create reciprocal peerings on both
-  VNets, create links and private-endpoint DNS groups in the DNS scope, and assign
+  VNets (or, with `createHubPeering = false`, only on the spoke VNet), create links and private-endpoint DNS groups in the DNS scope, and assign
   roles for AKS. AKS receives DNS and network roles before cluster creation.
 - Register `Microsoft.ContainerService` in both the workload and DNS subscriptions
   when the custom AKS zone is cross-subscription. Register the other relevant

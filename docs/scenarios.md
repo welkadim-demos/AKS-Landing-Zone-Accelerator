@@ -70,6 +70,11 @@ The deployment identity needs permissions on both VNets for reciprocal peerings,
 as well as the DNS and AKS role-assignment permissions in the
 [deployment guide](./deployment.md#permissions-and-provider-registration).
 
+To leave the existing hub completely untouched, set `createHubPeering = false` in
+the spoke parameters. Only the spoke-side peering is created (state `Initiated`);
+the hub owner creates the reverse peering. See the
+[existing hub walkthrough](./existing-hub-walkthrough.md#hub-side-peering).
+
 ## Standalone
 
 Use the [standalone profile](../environments/standalone/).

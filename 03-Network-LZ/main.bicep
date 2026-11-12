@@ -17,6 +17,8 @@ param aksSubnetName string = 'AKS'
 param connectToHub bool = true
 @description('Optional hub firewall next-hop IP. Leave empty to use AKS loadBalancer outbound without a firewall route.')
 param firewallIP string = ''
+@description('Create the hub-side peering as well. Set false to leave the existing hub untouched; the hub owner must then create the reverse peering.')
+param createHubPeering bool = true
 
 @description('Optional. AKS service CIDR. When provided, a UDR with VnetLocal next hop is added so service traffic does not transit the firewall.')
 param aksServiceCidr string?
@@ -328,7 +330,7 @@ module vnetSpoke 'br/public:avm/res/network/virtual-network:0.10.2' = {
         remoteVirtualNetworkResourceId: hubVnetResourceId
         allowForwardedTraffic: useFirewall
         allowVirtualNetworkAccess: true
-        remotePeeringEnabled: true
+        remotePeeringEnabled: createHubPeering
         remotePeeringName: '${hubVnetName}-to-${vnteSpokeName}'
         remotePeeringAllowForwardedTraffic: useFirewall
         remotePeeringAllowVirtualNetworkAccess: true

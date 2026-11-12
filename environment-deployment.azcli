@@ -50,6 +50,8 @@ $env:LOG_ANALYTICS_WORKSPACE_ID
 az deployment sub create --name "$environment-03-private-dns-zones" --location $location --parameters "$parametersPath\03-0-DNSZones\main.bicepparam" --subscription $subscriptionId --confirm-with-what-if
 
 # ---- 7. Spoke network, peered with the existing hub -----------------------------------------------------------
+# Nothing is deployed in the hub. With createHubPeering = false in the spoke parameters the hub VNet is not changed either;
+# the hub owner then creates the reverse peering (see docs/existing-hub-walkthrough.md#hub-side-peering).
 az deployment sub create --name "$environment-03-network-spoke" --location $location --parameters "$parametersPath\03-Network-LZ\main.bicepparam" --subscription $subscriptionId --confirm-with-what-if
 $env:SPOKE_VNET_RESOURCE_ID = az deployment sub show --name "$environment-03-network-spoke" --subscription $subscriptionId --query properties.outputs.vnetResourceId.value --output tsv
 $env:SPOKE_VNET_RESOURCE_ID

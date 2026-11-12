@@ -10,8 +10,8 @@ that already has a hub network. It uses
 
 - PowerShell 7.3 or later (`pwsh`). Check with `$PSVersionTable.PSVersion`.
 - Current Azure CLI and Bicep: `az --version`, then `az bicep upgrade`.
-- Permissions on the workload subscription and on the hub VNet for reciprocal
-  peerings, plus the DNS and role-assignment permissions in the
+- Permissions on the workload subscription. Reciprocal peering on the hub VNet is
+  needed only when `createHubPeering` is `true` (the default); plus the DNS and role-assignment permissions in the
   [deployment guide](./deployment.md#permissions-and-provider-registration).
 - Object IDs of the Entra groups for AKS admins and AKS users.
 
@@ -68,6 +68,10 @@ Then edit `environments\minimal\05-AKS\main.bicepparam`:
   owner must add firewall rules and IP-group CIDRs for the new AKS subnets.
 - If `firewallIP` is empty, keep `aksOutboundType = 'loadBalancer'`.
 
+Nothing is deployed into the hub. To also avoid changing the hub VNet, add
+`param createHubPeering = false` to the spoke parameters; the hub owner then
+creates the reverse peering (see [Hub-side peering](#hub-side-peering)).
+
 Review resource names, region, `kubernetesVersion` and VM sizes. Make sure the
 sizes are available in the region and covered by quota. To use another profile,
 set `$environment` in the runbook settings (`minimal`, `dev` or a private copy
@@ -101,9 +105,23 @@ az aks list --output table
 az network vnet peering list --resource-group <spoke-rg> --vnet-name <spoke-vnet> --output table
 ```
 
-Peering state should be `Connected`. The API server is private: run
+Peering state should be `Connected`. With `createHubPeering = false` it stays
+`Initiated` until the hub owner completes the hub-side peering. The API server is private: run
 `az aks get-credentials` and `kubectl` from a machine that can reach the spoke or
 hub network (jump box, Bastion or VPN).
+
+## Hub-side peering
+
+With `createHubPeering = false`, ask the hub owner to run this once the spoke
+exists. If an old, `Disconnected` peering with the same name remains, they must
+delete and recreate it. Use `--allow-forwarded-traffic true` when the hub has a
+firewall.
+
+```powershell
+az network vnet peering create --subscription <hub-subscription-id> --resource-group <hub-resource-group> `
+  --vnet-name <hub-vnet-name> --name <hub-vnet-name>-to-<spoke-vnet-name> `
+  --remote-vnet <spoke-vnet-resource-id> --allow-vnet-access true
+```
 
 ## Troubleshooting
 
