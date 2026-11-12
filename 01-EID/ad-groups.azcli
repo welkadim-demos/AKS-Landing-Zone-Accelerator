@@ -1,0 +1,11 @@
+$appdevs='aks-staging-devs'
+$aksops='aks-staging-admins'
+
+# checking if Azure CLI is installed
+if (!(Get-Command az -ErrorAction SilentlyContinue)) {
+    Write-Host "Azure CLI not installed. Installation steps in: https://docs.microsoft.com/cli/azure/install-azure-cli"
+    exit 1
+} else {
+    az ad group create --display-name $appdevs --mail-nickname $appdevs
+    az ad group create --display-name $aksops --mail-nickname $aksops
+}
