@@ -1,2 +1,5 @@
 Samples/postgres.bicep
 Samples/redis.bicep
+
+# Private local environment
+/environments/local/

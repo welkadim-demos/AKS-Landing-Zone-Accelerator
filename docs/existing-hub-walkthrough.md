@@ -78,7 +78,9 @@ Then edit `environments\minimal\05-AKS\main.bicepparam`:
 
 Review resource names, region, `kubernetesVersion` and VM sizes. Make sure the
 sizes are available in the region and covered by quota. To use another profile,
-change `$environment` at the top of the script (`minimal` or `dev`).
+change `$environment` at the top of the script (`minimal` or `dev`), or set
+`$env:AKS_ENVIRONMENT` (and `$env:AKS_LOCATION`) to use a private copy such as
+`environments\local`.
 
 ## 7. Run the script
 

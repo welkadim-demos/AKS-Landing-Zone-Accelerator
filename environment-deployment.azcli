@@ -8,9 +8,9 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
 # ---- Settings -------------------------------------------------------------------------------------------------
-$environment = 'minimal'       # minimal (swedencentral) or dev (uksouth); both peer the spoke with an existing hub
+$environment = if ($env:AKS_ENVIRONMENT) { $env:AKS_ENVIRONMENT } else { 'minimal' } # minimal (swedencentral) or dev (uksouth); both peer the spoke with an existing hub. Use AKS_ENVIRONMENT/AKS_LOCATION for a private copy such as environments\local.
 $deployMonitoring = $true      # shared Log Analytics workspace; set $false to reuse $env:LOG_ANALYTICS_WORKSPACE_ID or skip
-$location = if ($environment -eq 'minimal') { 'swedencentral' } else { 'uksouth' }
+$location = if ($env:AKS_LOCATION) { $env:AKS_LOCATION } elseif ($environment -eq 'minimal') { 'swedencentral' } else { 'uksouth' }
 $parametersPath = ".\environments\$environment"
 
 # Required environment variables (not stored in parameter files):
