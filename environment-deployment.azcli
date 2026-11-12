@@ -1,0 +1,121 @@
+# Guided deployment of the AKS landing zone into an EXISTING hub network (the hub is never deployed).
+# PowerShell 7.3+. Run from the repository root with: . .\environment-deployment.azcli
+# Each step explains itself, waits for ENTER, then shows a What-If to approve.
+# Before starting, edit environments\<profile>\03-Network-LZ\main.bicepparam with the existing hub values
+# (hubResourceGroupName, hubVnetName, firewallIP) and keep aksOutboundType in 05-AKS consistent with firewallIP.
+# See docs/existing-hub-walkthrough.md.
+$ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $true
+
+# ---- Settings -------------------------------------------------------------------------------------------------
+$environment = 'minimal'       # minimal (swedencentral) or dev (uksouth); both peer the spoke with an existing hub
+$deployMonitoring = $true      # shared Log Analytics workspace; set $false to reuse $env:LOG_ANALYTICS_WORKSPACE_ID or skip
+$location = if ($environment -eq 'minimal') { 'swedencentral' } else { 'uksouth' }
+$parametersPath = ".\environments\$environment"
+
+# Required environment variables (not stored in parameter files):
+#   $env:AKS_ADMIN_GROUP_ID, $env:AKS_USERS_GROUP_ID   Entra group object IDs
+#   $env:AKS_HUB_SUBSCRIPTION_ID                       only if the hub is in another subscription (same tenant)
+# ----------------------------------------------------------------------------------------------------------------
+
+function Wait-Step {
+    param([string] $Title, [string] $Description)
+    Write-Host "`n=== $Title ===" -ForegroundColor Cyan
+    Write-Host $Description
+    $answer = Read-Host 'Press ENTER to continue, S to skip this step, Q to quit'
+    if ($answer -match '^[Qq]') { throw 'Stopped by user.' }
+    return -not ($answer -match '^[Ss]')
+}
+
+function Get-BicepParameters {
+    param([string] $File)
+    $out = Join-Path ([IO.Path]::GetTempPath()) "aks-params-$([guid]::NewGuid()).json"
+    try {
+        az bicep build-params --file $File --outfile $out
+        return (Get-Content -LiteralPath $out -Raw | ConvertFrom-Json).parameters
+    }
+    finally { Remove-Item -LiteralPath $out -ErrorAction SilentlyContinue }
+}
+
+# ---- Step 0: pre-checks -----------------------------------------------------------------------------------------
+if (Wait-Step 'Step 0 - Pre-checks' 'Confirms the subscription, hub reachability, required variables and EncryptionAtHost feature.') {
+    $subscriptionId = az account show --query id --output tsv
+    if ([string]::IsNullOrWhiteSpace($subscriptionId)) { throw 'No active subscription. Run az login and az account set first.' }
+    az account show --query '{name:name, id:id, tenant:tenantId, user:user.name}' --output table
+
+    $hubSubscriptionId = if ([string]::IsNullOrWhiteSpace($env:AKS_HUB_SUBSCRIPTION_ID)) { $subscriptionId } else { $env:AKS_HUB_SUBSCRIPTION_ID }
+    $dnsSubscriptionId = $subscriptionId
+    $env:HUB_SUBSCRIPTION_ID = $hubSubscriptionId
+    $env:DNS_SUBSCRIPTION_ID = $dnsSubscriptionId
+
+    foreach ($name in 'AKS_ADMIN_GROUP_ID', 'AKS_USERS_GROUP_ID') {
+        if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Set `$env:$name before deploying." }
+    }
+
+    .\Test-DeploymentConfiguration.ps1 -NetworkParametersFile "$parametersPath\03-Network-LZ\main.bicepparam" -AKSParametersFile "$parametersPath\05-AKS\main.bicepparam"
+
+    if ((az feature show --namespace Microsoft.Compute --name EncryptionAtHost --subscription $subscriptionId --query properties.state --output tsv) -ne 'Registered') {
+        throw 'Register Microsoft.Compute/EncryptionAtHost and wait for Registered before deploying. See README.md.'
+    }
+
+    $networkParameters = Get-BicepParameters "$parametersPath\03-Network-LZ\main.bicepparam"
+    $hubResourceGroup = $networkParameters.hubResourceGroupName.value
+    $hubVnetName = $networkParameters.hubVnetName.value
+    Write-Host "Existing hub: subscription $hubSubscriptionId, resource group $hubResourceGroup, VNet $hubVnetName, firewall IP '$($networkParameters.firewallIP.value)'"
+    az network vnet show --subscription $hubSubscriptionId --resource-group $hubResourceGroup --name $hubVnetName --query '{name:name, addressSpace:addressSpace.addressPrefixes}' --output json
+    Write-Host 'The spoke address space (vnetSpokeAddressPrefixes) must not overlap the hub or any other peered network.' -ForegroundColor Yellow
+}
+else {
+    throw 'Step 0 cannot be skipped; the following steps need its variables.'
+}
+
+# ---- Step 1: resource providers ---------------------------------------------------------------------------------
+if (Wait-Step 'Step 1 - Register resource providers' 'Registers the required resource providers in the workload (and hub/DNS, if different) subscriptions and waits until ready.') {
+    $providers = @('Microsoft.Network', 'Microsoft.Storage', 'Microsoft.Compute', 'Microsoft.ManagedIdentity', 'Microsoft.OperationalInsights', 'Microsoft.OperationsManagement', 'Microsoft.ContainerService', 'Microsoft.Insights')
+    if ($environment -ne 'minimal') { $providers += @('Microsoft.ContainerRegistry', 'Microsoft.KeyVault') }
+    foreach ($provider in $providers) {
+        az provider register --namespace $provider --subscription $subscriptionId --wait
+    }
+    if ($hubSubscriptionId -ne $subscriptionId) {
+        az provider register --namespace Microsoft.Network --subscription $hubSubscriptionId --wait
+        az provider register --namespace Microsoft.Insights --subscription $hubSubscriptionId --wait
+    }
+}
+
+# ---- Step 2: monitoring -----------------------------------------------------------------------------------------
+if ($deployMonitoring -and (Test-Path "$parametersPath\02-0-Monitoring\main.bicepparam")) {
+    if (Wait-Step 'Step 2 - Shared monitoring' 'Creates a shared Log Analytics workspace. Later stages add diagnostic settings to it.') {
+        az deployment sub create --name "$environment-02-monitoring" --location $location --parameters "$parametersPath\02-0-Monitoring\main.bicepparam" --subscription $subscriptionId --confirm-with-what-if
+        $env:LOG_ANALYTICS_WORKSPACE_ID = az deployment sub show --name "$environment-02-monitoring" --subscription $subscriptionId --query properties.outputs.workspaceResourceId.value --output tsv
+        if ([string]::IsNullOrWhiteSpace($env:LOG_ANALYTICS_WORKSPACE_ID)) { throw 'The monitoring deployment did not return a workspace resource ID.' }
+    }
+}
+
+# ---- Step 3: private DNS zones ----------------------------------------------------------------------------------
+if (Wait-Step 'Step 3 - Private DNS zones' 'Creates the private DNS zones (AKS API server, storage, ...). Skip only if the customer already hosts these zones.') {
+    az deployment sub create --name "$environment-03-private-dns-zones" --location $location --parameters "$parametersPath\03-0-DNSZones\main.bicepparam" --subscription $dnsSubscriptionId --confirm-with-what-if
+}
+
+# ---- Step 4: spoke network --------------------------------------------------------------------------------------
+if (Wait-Step 'Step 4 - Spoke network' 'Creates the spoke VNet, NSGs and route tables, and peers the spoke with the EXISTING hub.') {
+    az deployment sub create --name "$environment-03-network-spoke" --location $location --parameters "$parametersPath\03-Network-LZ\main.bicepparam" --subscription $subscriptionId --confirm-with-what-if
+}
+$env:SPOKE_VNET_RESOURCE_ID = az deployment sub show --name "$environment-03-network-spoke" --subscription $subscriptionId --query properties.outputs.vnetResourceId.value --output tsv
+if ([string]::IsNullOrWhiteSpace($env:SPOKE_VNET_RESOURCE_ID)) { throw 'No spoke VNet resource ID found. Run Step 4 first.' }
+
+# ---- Step 5: DNS links ------------------------------------------------------------------------------------------
+if (Wait-Step 'Step 5 - Link DNS zones to the spoke' 'Links the private DNS zones to the new spoke VNet so private endpoints and the private API server resolve.') {
+    az deployment sub create --name "$environment-03-dns-links" --location $location --parameters "$parametersPath\03-0-DNSZones\links.bicepparam" --subscription $dnsSubscriptionId --confirm-with-what-if
+}
+
+# ---- Step 6: AKS supporting services ----------------------------------------------------------------------------
+if (Wait-Step 'Step 6 - AKS supporting services' 'Creates storage accounts (and ACR/Key Vault when enabled), the AKS identity and private endpoints.') {
+    az deployment sub create --name "$environment-04-aks-supporting" --location $location --parameters "$parametersPath\04-AKS-Supporting\main.bicepparam" --subscription $subscriptionId --confirm-with-what-if
+}
+
+# ---- Step 7: AKS ------------------------------------------------------------------------------------------------
+if (Wait-Step 'Step 7 - Private AKS cluster' 'Creates the private AKS cluster, node pools and role assignments.') {
+    az deployment sub create --name "$environment-05-aks" --location $location --parameters "$parametersPath\05-AKS\main.bicepparam" --subscription $subscriptionId --confirm-with-what-if
+}
+
+Write-Host "`nDeployment finished. Verify with: az aks list --subscription $subscriptionId --output table" -ForegroundColor Green

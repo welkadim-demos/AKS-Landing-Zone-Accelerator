@@ -44,7 +44,8 @@ object IDs through `AKS_ADMIN_GROUP_ID` and `AKS_USERS_GROUP_ID`.
 
 ## Existing hub
 
-Use the [dev profile](../environments/dev/), but skip hub creation.
+Use the [dev profile](../environments/dev/), but skip hub creation. For a guided,
+step-by-step run, see the [existing hub walkthrough](./existing-hub-walkthrough.md).
 
 1. Set `$environment = 'dev'` and `$deployHub = $false` in
    [deployment.azcli](../deployment.azcli).

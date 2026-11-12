@@ -35,6 +35,7 @@ existing deployment. No automated shared-resource cleanup is included.
 | Guide | Contents |
 | --- | --- |
 | [Deployment scenarios](./docs/scenarios.md) | New hub, existing hub and standalone configuration; parameter profiles. |
+| [Existing hub walkthrough](./docs/existing-hub-walkthrough.md) | Step-by-step PowerShell guide using the guided `environment-deployment.azcli` runbook. |
 | [Minimal hub](./docs/minimal.md) | Resources, node pools, ephemeral OS disks, identity, LTS and migration cautions. |
 | [Deployment and validation](./docs/deployment.md) | Prerequisites, stage order, subscriptions, permissions, monitoring and verification. |
 | [Networking and private DNS](./docs/networking.md) | Optional firewall, egress rules, DNS creation/linking and migration constraints. |
